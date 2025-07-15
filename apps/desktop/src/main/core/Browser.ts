@@ -443,6 +443,7 @@ export default class Browser {
       try {
         // Apply background material
         // this._browserWindow.setBackgroundMaterial('mica');
+        this._browserWindow.setBackgroundColor(isDarkMode ? '#000' : '#f8f8f8');
         this._browserWindow.setTitleBarOverlay({
           color: isDarkMode ? '#000' : '#f8f8f8',
           height: 30,
