@@ -235,13 +235,17 @@ export default class Browser {
       ...res,
       ...(isWindows
         ? {
+            backgroundColor: isDarkMode ? '#000' : '#f8f8f8',
             titleBarOverlay: {
-              color: isDarkMode ? '#000000' : '#f8f8f8',
+              color: isDarkMode ? '#000' : '#f8f8f8',
               height: 30,
+              symbolColor: isDarkMode ? '#ffffff80' : '#00000080',
             },
             titleBarStyle: 'hidden',
           }
-        : {}),
+        : {
+            backgroundColor: '#00000000',
+          }),
       autoHideMenuBar: true,
 
       frame: false,
@@ -394,13 +398,13 @@ export default class Browser {
     //   }, 50);
     // });
     //
-    // // Listen for system theme changes to update visual effects
-    // nativeTheme.on('updated', () => {
-    //   logger.debug(`[${this.identifier}] System theme changed, reapplying visual effects.`);
-    //   setTimeout(() => {
-    //     this.reapplyVisualEffects();
-    //   }, 100);
-    // });
+    // Listen for system theme changes to update visual effects
+    nativeTheme.on('updated', () => {
+      logger.debug(`[${this.identifier}] System theme changed, reapplying visual effects.`);
+      setTimeout(() => {
+        this.reapplyVisualEffects();
+      }, 100);
+    });
 
     logger.debug(`[${this.identifier}] retrieveOrInitialize completed.`);
 
@@ -438,7 +442,12 @@ export default class Browser {
 
       try {
         // Apply background material
-        this._browserWindow.setBackgroundMaterial('mica');
+        // this._browserWindow.setBackgroundMaterial('mica');
+        this._browserWindow.setTitleBarOverlay({
+          color: isDarkMode ? '#000' : '#f8f8f8',
+          height: 30,
+          symbolColor: isDarkMode ? '#ffffff80' : '#00000080',
+        });
         logger.debug(
           `[${this.identifier}] Visual effects applied successfully (dark mode: ${isDarkMode})`,
         );
@@ -452,8 +461,8 @@ export default class Browser {
    * Manually reapply visual effects (useful for fixing lost effects after window state changes)
    */
   reapplyVisualEffects() {
-    const { isWindows11 } = this.getWindowsVersion();
-    if (isWindows11) {
+    const { isWindows } = this.getWindowsVersion();
+    if (isWindows) {
       logger.debug(`[${this.identifier}] Manually reapplying visual effects.`);
       this.applyVisualEffects();
     } else {
