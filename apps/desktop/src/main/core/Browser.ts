@@ -235,18 +235,15 @@ export default class Browser {
       ...res,
       ...(isWindows
         ? {
+            titleBarOverlay: {
+              color: isDarkMode ? '#000000' : '#f8f8f8',
+              height: 30,
+            },
             titleBarStyle: 'hidden',
           }
         : {}),
-      ...(isWindows11
-        ? {
-            backgroundMaterial: isDarkMode ? 'mica' : 'acrylic',
-            vibrancy: 'under-window',
-            visualEffectState: 'active',
-          }
-        : {}),
       autoHideMenuBar: true,
-      backgroundColor: '#00000000',
+
       frame: false,
 
       height: savedState?.height || height,
@@ -360,7 +357,53 @@ export default class Browser {
       }
     });
 
+    // browserWindow.on('maximize', () => {
+    //   logger.debug(`[${this.identifier}] Window maximized, reapplying visual effects.`);
+    //   // Delay to ensure the window state has fully changed
+    //   setTimeout(() => {
+    //     this.reapplyVisualEffects();
+    //   }, 100);
+    // });
+    //
+    // browserWindow.on('unmaximize', () => {
+    //   logger.debug(`[${this.identifier}] Window unmaximized, reapplying visual effects.`);
+    //   setTimeout(() => {
+    //     this.reapplyVisualEffects();
+    //   }, 100);
+    // });
+    //
+    // browserWindow.on('enter-full-screen', () => {
+    //   logger.debug(`[${this.identifier}] Window entered full screen, reapplying visual effects.`);
+    //   setTimeout(() => {
+    //     this.reapplyVisualEffects();
+    //   }, 100);
+    // });
+    //
+    // browserWindow.on('leave-full-screen', () => {
+    //   logger.debug(`[${this.identifier}] Window left full screen, reapplying visual effects.`);
+    //   setTimeout(() => {
+    //     this.reapplyVisualEffects();
+    //   }, 100);
+    // });
+    //
+    // // Also listen for resize events in case the effect is lost during resize
+    // browserWindow.on('resized', () => {
+    //   logger.debug(`[${this.identifier}] Window resized, reapplying visual effects.`);
+    //   setTimeout(() => {
+    //     this.reapplyVisualEffects();
+    //   }, 50);
+    // });
+    //
+    // // Listen for system theme changes to update visual effects
+    // nativeTheme.on('updated', () => {
+    //   logger.debug(`[${this.identifier}] System theme changed, reapplying visual effects.`);
+    //   setTimeout(() => {
+    //     this.reapplyVisualEffects();
+    //   }, 100);
+    // });
+
     logger.debug(`[${this.identifier}] retrieveOrInitialize completed.`);
+
     return browserWindow;
   }
 
@@ -389,11 +432,32 @@ export default class Browser {
 
   applyVisualEffects() {
     // Windows 11 can use this new API
-    if (this._browserWindow) {
+    if (this._browserWindow && !this._browserWindow.isDestroyed()) {
       logger.debug(`[${this.identifier}] Setting window background material for Windows 11`);
       const isDarkMode = nativeTheme.shouldUseDarkColors;
-      this._browserWindow?.setBackgroundMaterial(isDarkMode ? 'mica' : 'acrylic');
-      this._browserWindow?.setVibrancy('under-window');
+
+      try {
+        // Apply background material
+        this._browserWindow.setBackgroundMaterial('mica');
+        logger.debug(
+          `[${this.identifier}] Visual effects applied successfully (dark mode: ${isDarkMode})`,
+        );
+      } catch (error) {
+        logger.error(`[${this.identifier}] Failed to apply visual effects:`, error);
+      }
+    }
+  }
+
+  /**
+   * Manually reapply visual effects (useful for fixing lost effects after window state changes)
+   */
+  reapplyVisualEffects() {
+    const { isWindows11 } = this.getWindowsVersion();
+    if (isWindows11) {
+      logger.debug(`[${this.identifier}] Manually reapplying visual effects.`);
+      this.applyVisualEffects();
+    } else {
+      logger.debug(`[${this.identifier}] Visual effects not supported on this Windows version.`);
     }
   }
 
