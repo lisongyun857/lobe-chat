@@ -1,7 +1,9 @@
 import { DataSyncConfig, NetworkProxySettings } from '@lobechat/electron-client-ipc';
 
 export interface ElectronMainStore {
+  autoSyncSpellCheckLanguage: boolean;
   dataSyncConfig: DataSyncConfig;
+  enableSpellCheck: boolean;
   encryptedTokens: {
     accessToken?: string;
     refreshToken?: string;
@@ -9,7 +11,9 @@ export interface ElectronMainStore {
   locale: string;
   networkProxy: NetworkProxySettings;
   shortcuts: Record<string, string>;
+  spellCheckLanguages: string[];
   storagePath: string;
+  zoomFactor: number;
 }
 
 export type StoreKey = keyof ElectronMainStore;

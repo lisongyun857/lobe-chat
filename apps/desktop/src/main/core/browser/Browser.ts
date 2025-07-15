@@ -10,9 +10,13 @@ import { createLogger } from '@/utils/logger';
 import type { App } from '../App';
 import {
   WindowConfigBuilder,
+  WindowDisplayManager,
   WindowErrorHandler,
+  WindowLifecycleManager,
   WindowPositionManager,
+  WindowSpellCheckManager,
   WindowThemeManager,
+  WindowWebRequestManager,
 } from '../window';
 
 // Create logger
@@ -44,6 +48,10 @@ export class Browser {
   private errorHandler?: WindowErrorHandler;
   private themeManager?: WindowThemeManager;
   private positionManager?: WindowPositionManager;
+  private lifecycleManager?: WindowLifecycleManager;
+  private webRequestManager?: WindowWebRequestManager;
+  private spellCheckManager?: WindowSpellCheckManager;
+  private displayManager?: WindowDisplayManager;
 
   /**
    * Identifier
@@ -128,12 +136,22 @@ export class Browser {
       }
     }
 
-    this.browserWindow.show();
+    // Use advanced display manager for better show behavior
+    if (this.displayManager) {
+      this.displayManager.showWindow();
+    } else {
+      this.browserWindow.show();
+    }
   }
 
   hide() {
     logger.debug(`Hiding window: ${this.identifier}`);
-    this.browserWindow.hide();
+    // Use advanced display manager for better hide behavior
+    if (this.displayManager) {
+      this.displayManager.hideWindow();
+    } else {
+      this.browserWindow.hide();
+    }
   }
 
   close() {
@@ -154,11 +172,13 @@ export class Browser {
     // Clean up intercept handler
     this.stopInterceptHandler?.();
 
-    // Clean up error handler
+    // Clean up all managers
     this.errorHandler?.cleanupRetryHandler();
-
-    // Clean up theme manager
     this.themeManager?.cleanup();
+    this.lifecycleManager?.cleanup();
+    this.webRequestManager?.cleanup();
+    this.spellCheckManager?.cleanup();
+    this.displayManager?.cleanup();
 
     // Reset event listeners flag
     this.eventListenersSetup = false;
@@ -198,8 +218,8 @@ export class Browser {
     this._browserWindow = browserWindow;
     logger.debug(`[${this.identifier}] BrowserWindow instance created.`);
 
-    // Initialize helper managers
-    this.initializeHelperManagers(browserWindow);
+    // Initialize all managers
+    this.initializeAllManagers(browserWindow);
 
     // Let window state keeper manage the window
     this.windowStateKeeper.manage(browserWindow);
@@ -242,10 +262,14 @@ export class Browser {
     return browserWindow;
   }
 
-  private initializeHelperManagers(browserWindow: BrowserWindow): void {
+  private initializeAllManagers(browserWindow: BrowserWindow): void {
     this.errorHandler = new WindowErrorHandler(browserWindow, this.identifier);
     this.themeManager = new WindowThemeManager(browserWindow, this.identifier);
     this.positionManager = new WindowPositionManager(browserWindow, this.identifier, this.app);
+    this.lifecycleManager = new WindowLifecycleManager(browserWindow, this.identifier, this.app);
+    this.webRequestManager = new WindowWebRequestManager(browserWindow, this.identifier);
+    this.spellCheckManager = new WindowSpellCheckManager(browserWindow, this.identifier, this.app);
+    this.displayManager = new WindowDisplayManager(browserWindow, this.identifier, this.app);
   }
 
   private setupEventListeners(browserWindow: BrowserWindow, showOnInit?: boolean) {
@@ -288,8 +312,8 @@ export class Browser {
         e.preventDefault();
         browserWindow.hide();
 
-        // Handle macOS dock behavior - hide dock when all windows are hidden
-        if (isMac && this.shouldHideDock()) {
+        // Handle macOS dock behavior using display manager
+        if (this.displayManager?.shouldHideDock()) {
           app.dock?.hide();
         }
       } else {
@@ -301,18 +325,33 @@ export class Browser {
     });
 
     // Theme changes are now handled by WindowThemeManager
+    // Lifecycle events are now handled by WindowLifecycleManager
+    // Web requests are now handled by WindowWebRequestManager
+    // Spell check is now handled by WindowSpellCheckManager
+    // Display management is now handled by WindowDisplayManager
   }
 
   private shouldHideDock(): boolean {
-    // Check if any window in the app is still visible
-    if (!this.app.browserManager) return false;
-
-    // This is a simplified check - in a real implementation you'd check all windows
-    return true; // For now, always allow hiding dock
+    // Delegate to display manager for better logic
+    return this.displayManager?.shouldHideDock() || false;
   }
 
   moveToCenter() {
     this.positionManager?.centerWindow();
+  }
+
+  /**
+   * Center window on current display
+   */
+  centerOnDisplay() {
+    this.displayManager?.centerOnDisplay();
+  }
+
+  /**
+   * Bring window to front
+   */
+  bringToFront() {
+    this.displayManager?.bringToFront();
   }
 
   setWindowSize(boundSize: { height?: number; width?: number }) {
@@ -337,13 +376,79 @@ export class Browser {
     this.themeManager?.reapplyVisualEffects();
   }
 
+  /**
+   * Set zoom factor for this window
+   */
+  setZoomFactor(factor: number) {
+    this.lifecycleManager?.setZoomFactor(factor);
+  }
+
+  /**
+   * Get current zoom factor
+   */
+  getZoomFactor(): number {
+    return this.lifecycleManager?.getZoomFactor() || 1;
+  }
+
+  /**
+   * Update spell check configuration
+   */
+  updateSpellCheck(enabled: boolean, languages?: string[], updateAutoSync: boolean = true) {
+    this.spellCheckManager?.updateSpellCheck(enabled, languages, updateAutoSync);
+  }
+
+  /**
+   * Set auto-sync spell check language with i18n
+   */
+  setAutoSyncSpellCheckLanguage(autoSync: boolean) {
+    this.spellCheckManager?.setAutoSyncSpellCheckLanguage(autoSync);
+  }
+
+  /**
+   * Get current spell check configuration
+   */
+  getSpellCheckConfig(): {
+    autoSync: boolean;
+    availableLanguages: readonly string[];
+    enabled: boolean;
+    languages: string[];
+  } {
+    return (
+      this.spellCheckManager?.getSpellCheckConfig() || {
+        autoSync: true,
+        availableLanguages: [],
+        enabled: false,
+        languages: ['en-US'],
+      }
+    );
+  }
+
   toggleVisible() {
     logger.debug(`Toggling visibility for window: ${this.identifier}`);
+    // Use advanced display manager for better toggle behavior
+    if (this.displayManager) {
+      this.displayManager.toggleWindow();
+    } else {
+      this.fallbackToggleVisible();
+    }
+  }
+
+  /**
+   * Fallback toggle method if display manager is not available
+   */
+  private fallbackToggleVisible() {
     if (this._browserWindow?.isVisible() && this._browserWindow.isFocused()) {
       this._browserWindow.hide();
     } else {
       this._browserWindow?.show();
       this._browserWindow?.focus();
     }
+  }
+
+  /**
+   * Handle window activation
+   */
+  handleActivation() {
+    this.displayManager?.handleActivation();
   }
 }

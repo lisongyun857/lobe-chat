@@ -24,8 +24,8 @@ export class BrowserManager {
     this.app = app;
   }
 
-  getMainWindow() {
-    return this.retrieveByIdentifier('chat');
+  getMainWindow(): Browser | null {
+    return this.browsers.get('chat') || null;
   }
 
   showMainWindow() {
