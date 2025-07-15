@@ -7,11 +7,13 @@ import { resourcesDir } from '@/const/dir';
 import { isMac } from '@/const/env';
 import { createLogger } from '@/utils/logger';
 
-import type { App } from './App';
-import { WindowConfigBuilder } from './WindowConfigBuilder';
-import { WindowErrorHandler } from './WindowErrorHandler';
-import { WindowPositionManager } from './WindowPositionManager';
-import { WindowThemeManager } from './WindowThemeManager';
+import type { App } from '../App';
+import {
+  WindowConfigBuilder,
+  WindowErrorHandler,
+  WindowPositionManager,
+  WindowThemeManager,
+} from '../window';
 
 // Create logger
 const logger = createLogger('core:Browser');
@@ -28,7 +30,7 @@ export interface BrowserWindowOpts extends BrowserWindowConstructorOptions {
   width?: number;
 }
 
-export default class Browser {
+export class Browser {
   private app: App;
 
   /**

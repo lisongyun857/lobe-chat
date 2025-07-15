@@ -12,7 +12,7 @@ import { join } from 'node:path';
 import { resourcesDir } from '@/const/dir';
 import { createLogger } from '@/utils/logger';
 
-import type { App } from './App';
+import type { App } from '../App';
 
 // Create logger
 const logger = createLogger('core:Tray');
@@ -34,7 +34,7 @@ export interface TrayOptions {
   tooltip?: string;
 }
 
-export default class Tray {
+export class Tray {
   private app: App;
 
   /**

@@ -3,8 +3,8 @@ import { MainBroadcastEventKey, MainBroadcastParams } from '@lobechat/electron-c
 import { name } from '@/../../package.json';
 import { createLogger } from '@/utils/logger';
 
-import type { App } from './App';
-import Tray, { TrayOptions } from './Tray';
+import type { App } from '../App';
+import { Tray, TrayOptions } from './Tray';
 
 // Create logger
 const logger = createLogger('core:TrayManager');
@@ -14,7 +14,7 @@ const logger = createLogger('core:TrayManager');
  */
 export type TrayIdentifiers = 'main';
 
-export default class TrayManager {
+export class TrayManager {
   app: App;
 
   /**
