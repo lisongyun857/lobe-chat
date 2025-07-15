@@ -243,23 +243,28 @@ export default class Browser {
             },
             titleBarStyle: 'hidden',
           }
-        : {
-            backgroundColor: '#00000000',
-          }),
+        : {}),
       autoHideMenuBar: true,
-
       frame: false,
-
       height: savedState?.height || height,
+      minHeight: 600,
+      minWidth: 960,
       // Always create hidden first
       show: false,
       title,
-
+      // Context isolation environment
+      // https://www.electronjs.org/docs/tutorial/context-isolation
+      transparent: false,
+      vibrancy: 'sidebar',
+      visualEffectState: 'active',
       webPreferences: {
-        // Context isolation environment
-        // https://www.electronjs.org/docs/tutorial/context-isolation
+        allowRunningInsecureContent: true,
+        backgroundThrottling: false,
         contextIsolation: true,
         preload: join(preloadDir, 'index.js'),
+        sandbox: false,
+        webSecurity: false,
+        webviewTag: true,
       },
       width: savedState?.width || width,
     });
@@ -361,43 +366,6 @@ export default class Browser {
       }
     });
 
-    // browserWindow.on('maximize', () => {
-    //   logger.debug(`[${this.identifier}] Window maximized, reapplying visual effects.`);
-    //   // Delay to ensure the window state has fully changed
-    //   setTimeout(() => {
-    //     this.reapplyVisualEffects();
-    //   }, 100);
-    // });
-    //
-    // browserWindow.on('unmaximize', () => {
-    //   logger.debug(`[${this.identifier}] Window unmaximized, reapplying visual effects.`);
-    //   setTimeout(() => {
-    //     this.reapplyVisualEffects();
-    //   }, 100);
-    // });
-    //
-    // browserWindow.on('enter-full-screen', () => {
-    //   logger.debug(`[${this.identifier}] Window entered full screen, reapplying visual effects.`);
-    //   setTimeout(() => {
-    //     this.reapplyVisualEffects();
-    //   }, 100);
-    // });
-    //
-    // browserWindow.on('leave-full-screen', () => {
-    //   logger.debug(`[${this.identifier}] Window left full screen, reapplying visual effects.`);
-    //   setTimeout(() => {
-    //     this.reapplyVisualEffects();
-    //   }, 100);
-    // });
-    //
-    // // Also listen for resize events in case the effect is lost during resize
-    // browserWindow.on('resized', () => {
-    //   logger.debug(`[${this.identifier}] Window resized, reapplying visual effects.`);
-    //   setTimeout(() => {
-    //     this.reapplyVisualEffects();
-    //   }, 50);
-    // });
-    //
     // Listen for system theme changes to update visual effects
     nativeTheme.on('updated', () => {
       logger.debug(`[${this.identifier}] System theme changed, reapplying visual effects.`);
