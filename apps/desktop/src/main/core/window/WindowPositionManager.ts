@@ -2,7 +2,7 @@ import { BrowserWindow, Display, screen } from 'electron';
 
 import { createLogger } from '@/utils/logger';
 
-import type { App } from './App';
+import type { App } from '../App';
 
 const logger = createLogger('core:WindowPositionManager');
 

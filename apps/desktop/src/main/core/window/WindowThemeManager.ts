@@ -24,6 +24,45 @@ export class WindowThemeManager {
     this.setupThemeListener();
   }
 
+  /**
+   * Get platform-specific theme configuration for window creation
+   */
+  static getPlatformThemeConfig(isDarkMode?: boolean): Record<string, any> {
+    const darkMode = isDarkMode ?? nativeTheme.shouldUseDarkColors;
+
+    if (isWindows) {
+      return WindowThemeManager.getWindowsThemeConfig(darkMode);
+    }
+
+    return {};
+  }
+
+  /**
+   * Get Windows-specific theme configuration
+   */
+  static getWindowsThemeConfig(isDarkMode: boolean) {
+    return {
+      backgroundColor: isDarkMode ? BACKGROUND_DARK : BACKGROUND_LIGHT,
+      titleBarOverlay: {
+        color: isDarkMode ? BACKGROUND_DARK : BACKGROUND_LIGHT,
+        height: TITLE_BAR_HEIGHT,
+        symbolColor: isDarkMode ? SYMBOL_COLOR_DARK : SYMBOL_COLOR_LIGHT,
+      },
+      titleBarStyle: 'hidden' as const,
+    };
+  }
+
+  /**
+   * Get current system theme state
+   */
+  static getCurrentThemeState() {
+    return {
+      backgroundColor: nativeTheme.shouldUseDarkColors ? BACKGROUND_DARK : BACKGROUND_LIGHT,
+      isDarkMode: nativeTheme.shouldUseDarkColors,
+      symbolColor: nativeTheme.shouldUseDarkColors ? SYMBOL_COLOR_DARK : SYMBOL_COLOR_LIGHT,
+    };
+  }
+
   private setupThemeListener(): void {
     if (this.themeListenerSetup) return;
 
@@ -58,12 +97,10 @@ export class WindowThemeManager {
   }
 
   private applyWindowsVisualEffects(isDarkMode: boolean): void {
-    this.window.setBackgroundColor(isDarkMode ? BACKGROUND_DARK : BACKGROUND_LIGHT);
-    this.window.setTitleBarOverlay({
-      color: isDarkMode ? BACKGROUND_DARK : BACKGROUND_LIGHT,
-      height: TITLE_BAR_HEIGHT,
-      symbolColor: isDarkMode ? SYMBOL_COLOR_DARK : SYMBOL_COLOR_LIGHT,
-    });
+    const config = WindowThemeManager.getWindowsThemeConfig(isDarkMode);
+
+    this.window.setBackgroundColor(config.backgroundColor);
+    this.window.setTitleBarOverlay(config.titleBarOverlay);
   }
 
   /**

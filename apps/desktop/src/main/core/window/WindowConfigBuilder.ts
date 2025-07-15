@@ -3,17 +3,10 @@ import windowStateKeeper from 'electron-window-state';
 import { join } from 'node:path';
 
 import { preloadDir } from '@/const/dir';
-import { isWindows } from '@/const/env';
-import {
-  BACKGROUND_DARK,
-  BACKGROUND_LIGHT,
-  DEFAULT_WINDOW_CONFIG,
-  SYMBOL_COLOR_DARK,
-  SYMBOL_COLOR_LIGHT,
-  TITLE_BAR_HEIGHT,
-} from '@/const/theme';
+import { DEFAULT_WINDOW_CONFIG } from '@/const/theme';
 
-import type { BrowserWindowOpts } from './Browser';
+import type { BrowserWindowOpts } from '../browser/Browser';
+import { WindowThemeManager } from './WindowThemeManager';
 
 export interface WindowConfig extends BrowserWindowConstructorOptions {
   windowStateKeeper: windowStateKeeper.State;
@@ -64,10 +57,9 @@ export class WindowConfigBuilder {
       y: this.windowStateKeeper.y,
     };
 
-    // Apply platform-specific configurations
-    if (isWindows) {
-      Object.assign(baseConfig, this.getWindowsSpecificConfig(isDarkMode));
-    }
+    // Apply platform-specific theme configurations from WindowThemeManager
+    const platformThemeConfig = WindowThemeManager.getPlatformThemeConfig(isDarkMode);
+    Object.assign(baseConfig, platformThemeConfig);
 
     return {
       ...baseConfig,
@@ -84,18 +76,6 @@ export class WindowConfigBuilder {
       sandbox: false,
       webSecurity: false,
       webviewTag: true,
-    };
-  }
-
-  private getWindowsSpecificConfig(isDarkMode: boolean) {
-    return {
-      backgroundColor: isDarkMode ? BACKGROUND_DARK : BACKGROUND_LIGHT,
-      titleBarOverlay: {
-        color: isDarkMode ? BACKGROUND_DARK : BACKGROUND_LIGHT,
-        height: TITLE_BAR_HEIGHT,
-        symbolColor: isDarkMode ? SYMBOL_COLOR_DARK : SYMBOL_COLOR_LIGHT,
-      },
-      titleBarStyle: 'hidden' as const,
     };
   }
 }
