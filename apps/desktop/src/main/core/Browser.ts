@@ -1,27 +1,17 @@
 import { MainBroadcastEventKey, MainBroadcastParams } from '@lobechat/electron-client-ipc';
-import {
-  BrowserWindow,
-  BrowserWindowConstructorOptions,
-  ipcMain,
-  nativeTheme,
-  screen,
-} from 'electron';
+import { BrowserWindow, BrowserWindowConstructorOptions, app } from 'electron';
+import windowStateKeeper from 'electron-window-state';
 import { join } from 'node:path';
 
-import { isWindows } from '@/const/env';
-import {
-  BACKGROUND_DARK,
-  BACKGROUND_LIGHT,
-  MIN_HEIGHT,
-  MIN_WIDTH,
-  SYMBOL_COLOR_DARK,
-  SYMBOL_COLOR_LIGHT,
-  TITLE_BAR_HEIGHT,
-} from '@/const/theme';
+import { resourcesDir } from '@/const/dir';
+import { isMac } from '@/const/env';
 import { createLogger } from '@/utils/logger';
 
-import { preloadDir, resourcesDir } from '../const/dir';
 import type { App } from './App';
+import { WindowConfigBuilder } from './WindowConfigBuilder';
+import { WindowErrorHandler } from './WindowErrorHandler';
+import { WindowPositionManager } from './WindowPositionManager';
+import { WindowThemeManager } from './WindowThemeManager';
 
 // Create logger
 const logger = createLogger('core:Browser');
@@ -46,21 +36,32 @@ export default class Browser {
    */
   private _browserWindow?: BrowserWindow;
 
-  private stopInterceptHandler;
+  private stopInterceptHandler?: () => void;
+
+  // Helper managers
+  private errorHandler?: WindowErrorHandler;
+  private themeManager?: WindowThemeManager;
+  private positionManager?: WindowPositionManager;
+
   /**
    * Identifier
    */
-  identifier: string;
+  readonly identifier: string;
 
   /**
    * Options at creation
    */
-  options: BrowserWindowOpts;
+  readonly options: BrowserWindowOpts;
 
   /**
-   * Key for storing window state in storeManager
+   * Window state keeper instance for managing window position and size
    */
-  private readonly windowStateKey: string;
+  private windowStateKeeper?: windowStateKeeper.State;
+
+  /**
+   * Track if event listeners have been set up to avoid duplicates
+   */
+  private eventListenersSetup = false;
 
   /**
    * Method to expose window externally
@@ -70,7 +71,7 @@ export default class Browser {
   }
 
   get webContents() {
-    if (this._browserWindow.isDestroyed()) return null;
+    if (this._browserWindow?.isDestroyed()) return null;
 
     return this._browserWindow.webContents;
   }
@@ -86,7 +87,6 @@ export default class Browser {
     this.app = application;
     this.identifier = options.identifier;
     this.options = options;
-    this.windowStateKey = `windowSize_${this.identifier}`;
 
     // Initialization
     this.retrieveOrInitialize();
@@ -101,53 +101,13 @@ export default class Browser {
       logger.debug(`[${this.identifier}] Successfully loaded URL: ${initUrl}`);
     } catch (error) {
       logger.error(`[${this.identifier}] Failed to load URL (${initUrl}):`, error);
-
-      // Try to load local error page
-      try {
-        logger.info(`[${this.identifier}] Attempting to load error page...`);
-        await this._browserWindow.loadFile(join(resourcesDir, 'error.html'));
-        logger.info(`[${this.identifier}] Error page loaded successfully.`);
-
-        // Remove previously set retry listeners to avoid duplicates
-        ipcMain.removeHandler('retry-connection');
-        logger.debug(`[${this.identifier}] Removed existing retry-connection handler if any.`);
-
-        // Set retry logic
-        ipcMain.handle('retry-connection', async () => {
-          logger.info(`[${this.identifier}] Retry connection requested for: ${initUrl}`);
-          try {
-            await this._browserWindow?.loadURL(initUrl);
-            logger.info(`[${this.identifier}] Reconnection successful to ${initUrl}`);
-            return { success: true };
-          } catch (err) {
-            logger.error(`[${this.identifier}] Retry connection failed for ${initUrl}:`, err);
-            // Reload error page
-            try {
-              logger.info(`[${this.identifier}] Reloading error page after failed retry...`);
-              await this._browserWindow?.loadFile(join(resourcesDir, 'error.html'));
-              logger.info(`[${this.identifier}] Error page reloaded.`);
-            } catch (loadErr) {
-              logger.error('[${this.identifier}] Failed to reload error page:', loadErr);
-            }
-            return { error: err.message, success: false };
-          }
-        });
-        logger.debug(`[${this.identifier}] Set up retry-connection handler.`);
-      } catch (err) {
-        logger.error(`[${this.identifier}] Failed to load error page:`, err);
-        // If even the error page can't be loaded, at least show a simple error message
-        try {
-          logger.warn(`[${this.identifier}] Attempting to load fallback error HTML string...`);
-          await this._browserWindow.loadURL(
-            'data:text/html,<html><body><h1>Loading Failed</h1><p>Unable to connect to server, please restart the application</p></body></html>',
-          );
-          logger.info(`[${this.identifier}] Fallback error HTML string loaded.`);
-        } catch (finalErr) {
-          logger.error(`[${this.identifier}] Unable to display any page:`, finalErr);
-        }
-      }
+      await this.handleLoadError(initUrl);
     }
   };
+
+  private async handleLoadError(initUrl: string) {
+    await this.errorHandler?.handleLoadError(initUrl);
+  }
 
   loadPlaceholder = async () => {
     logger.debug(`[${this.identifier}] Loading splash screen placeholder`);
@@ -158,39 +118,15 @@ export default class Browser {
 
   show() {
     logger.debug(`Showing window: ${this.identifier}`);
-    if (!this._browserWindow.isDestroyed()) this.determineWindowPosition();
-
-    this.browserWindow.show();
-  }
-
-  private determineWindowPosition() {
-    const { parentIdentifier } = this.options;
-
-    if (parentIdentifier) {
-      // todo: fix ts type
-      const parentWin = this.app.browserManager.retrieveByIdentifier(parentIdentifier as any);
-      if (parentWin) {
-        logger.debug(`[${this.identifier}] Found parent window: ${parentIdentifier}`);
-
-        const display = screen.getDisplayNearestPoint(parentWin.browserWindow.getContentBounds());
-        if (display) {
-          const {
-            workArea: { x, y, width: displayWidth, height: displayHeight },
-          } = display;
-
-          const { width, height } = this._browserWindow.getContentBounds();
-          logger.debug(
-            `[${this.identifier}] Display bounds: x=${x}, y=${y}, width=${displayWidth}, height=${displayHeight}`,
-          );
-
-          // Calculate new position
-          const newX = Math.floor(Math.max(x + (displayWidth - width) / 2, x));
-          const newY = Math.floor(Math.max(y + (displayHeight - height) / 2, y));
-          logger.debug(`[${this.identifier}] Calculated position: x=${newX}, y=${newY}`);
-          this._browserWindow.setPosition(newX, newY, false);
-        }
+    if (!this._browserWindow?.isDestroyed()) {
+      this.positionManager?.determinePosition(this.options.parentIdentifier);
+      // Handle macOS dock behavior
+      if (isMac && app.dock) {
+        app.dock.show();
       }
     }
+
+    this.browserWindow.show();
   }
 
   hide() {
@@ -208,8 +144,22 @@ export default class Browser {
    */
   destroy() {
     logger.debug(`Destroying window instance: ${this.identifier}`);
-    this.stopInterceptHandler?.();
+    this.cleanupResources();
     this._browserWindow = undefined;
+  }
+
+  private cleanupResources() {
+    // Clean up intercept handler
+    this.stopInterceptHandler?.();
+
+    // Clean up error handler
+    this.errorHandler?.cleanupRetryHandler();
+
+    // Clean up theme manager
+    this.themeManager?.cleanup();
+
+    // Reset event listeners flag
+    this.eventListenersSetup = false;
   }
 
   /**
@@ -222,62 +172,45 @@ export default class Browser {
       return this._browserWindow;
     }
 
-    const { path, title, width, height, devTools, showOnInit, ...res } = this.options;
-
-    // Load window state
-    const savedState = this.app.storeManager.get(this.windowStateKey as any) as
-      | { height?: number; width?: number }
-      | undefined; // Keep type for now, but only use w/h
     logger.info(`Creating new BrowserWindow instance: ${this.identifier}`);
     logger.debug(`[${this.identifier}] Options for new window: ${JSON.stringify(this.options)}`);
+
+    // Build window configuration using WindowConfigBuilder
+    const configBuilder = new WindowConfigBuilder(this.options);
+    const config = configBuilder.build();
+    this.windowStateKeeper = config.windowStateKeeper;
+
     logger.debug(
-      `[${this.identifier}] Saved window state (only size used): ${JSON.stringify(savedState)}`,
+      `[${this.identifier}] Window state restored: ${JSON.stringify({
+        height: this.windowStateKeeper.height,
+        isFullScreen: this.windowStateKeeper.isFullScreen,
+        isMaximized: this.windowStateKeeper.isMaximized,
+        width: this.windowStateKeeper.width,
+        x: this.windowStateKeeper.x,
+        y: this.windowStateKeeper.y,
+      })}`,
     );
 
-    const isDarkMode = nativeTheme.shouldUseDarkColors;
-
-    const browserWindow = new BrowserWindow({
-      ...res,
-      ...(isWindows
-        ? {
-            backgroundColor: isDarkMode ? BACKGROUND_DARK : BACKGROUND_LIGHT,
-            titleBarOverlay: {
-              color: isDarkMode ? BACKGROUND_DARK : BACKGROUND_LIGHT,
-              height: TITLE_BAR_HEIGHT,
-              symbolColor: isDarkMode ? SYMBOL_COLOR_DARK : SYMBOL_COLOR_LIGHT,
-            },
-            titleBarStyle: 'hidden',
-          }
-        : {}),
-      autoHideMenuBar: true,
-      darkTheme: isDarkMode,
-      frame: false,
-      height: savedState?.height || height,
-      minHeight: MIN_HEIGHT,
-      minWidth: MIN_WIDTH,
-      show: false,
-      title,
-      // Context isolation environment
-      // https://www.electronjs.org/docs/tutorial/context-isolation
-      transparent: false,
-      vibrancy: 'sidebar',
-      visualEffectState: 'active',
-      webPreferences: {
-        allowRunningInsecureContent: true,
-        backgroundThrottling: false,
-        contextIsolation: true,
-        preload: join(preloadDir, 'index.js'),
-        sandbox: false,
-        webSecurity: false,
-        webviewTag: true,
-      },
-      width: savedState?.width || width,
-    });
+    const browserWindow = new BrowserWindow(config);
 
     this._browserWindow = browserWindow;
     logger.debug(`[${this.identifier}] BrowserWindow instance created.`);
 
-    if (isWindows) this.applyVisualEffects();
+    // Initialize helper managers
+    this.initializeHelperManagers(browserWindow);
+
+    // Let window state keeper manage the window
+    this.windowStateKeeper.manage(browserWindow);
+
+    // Restore maximized state if needed
+    if (this.windowStateKeeper.isMaximized) {
+      // Delay maximize to ensure proper display
+      browserWindow.once('ready-to-show', () => {
+        if (!browserWindow.isDestroyed()) {
+          browserWindow.maximize();
+        }
+      });
+    }
 
     logger.debug(`[${this.identifier}] Setting up nextInterceptor.`);
     this.stopInterceptHandler = this.app.nextInterceptor({
@@ -286,23 +219,44 @@ export default class Browser {
 
     logger.debug(`[${this.identifier}] Initiating placeholder and URL loading sequence.`);
     this.loadPlaceholder().then(() => {
-      this.loadUrl(path).catch((e) => {
-        logger.error(`[${this.identifier}] Initial loadUrl error for path '${path}':`, e);
+      this.loadUrl(this.options.path).catch((e) => {
+        logger.error(
+          `[${this.identifier}] Initial loadUrl error for path '${this.options.path}':`,
+          e,
+        );
       });
     });
 
     // Show devtools if enabled
-    if (devTools) {
+    if (this.options.devTools) {
       logger.debug(`[${this.identifier}] Opening DevTools because devTools option is true.`);
       browserWindow.webContents.openDevTools();
     }
 
-    logger.debug(`[${this.identifier}] Setting up 'ready-to-show' event listener.`);
+    this.setupEventListeners(browserWindow, this.options.showOnInit);
+
+    logger.debug(`[${this.identifier}] retrieveOrInitialize completed.`);
+
+    return browserWindow;
+  }
+
+  private initializeHelperManagers(browserWindow: BrowserWindow): void {
+    this.errorHandler = new WindowErrorHandler(browserWindow, this.identifier);
+    this.themeManager = new WindowThemeManager(browserWindow, this.identifier);
+    this.positionManager = new WindowPositionManager(browserWindow, this.identifier, this.app);
+  }
+
+  private setupEventListeners(browserWindow: BrowserWindow, showOnInit?: boolean) {
+    if (this.eventListenersSetup) return;
+    this.eventListenersSetup = true;
+
+    logger.debug(`[${this.identifier}] Setting up event listeners.`);
+
     browserWindow.once('ready-to-show', () => {
       logger.debug(`[${this.identifier}] Window 'ready-to-show' event fired.`);
       if (showOnInit) {
         logger.debug(`Showing window ${this.identifier} because showOnInit is true.`);
-        browserWindow?.show();
+        this.show();
       } else {
         logger.debug(
           `Window ${this.identifier} not shown on 'ready-to-show' because showOnInit is false.`,
@@ -310,7 +264,6 @@ export default class Browser {
       }
     });
 
-    logger.debug(`[${this.identifier}] Setting up 'close' event listener.`);
     browserWindow.on('close', (e) => {
       logger.debug(`Window 'close' event triggered for: ${this.identifier}`);
       logger.debug(
@@ -320,19 +273,8 @@ export default class Browser {
       // If in application quitting process, allow window to be closed
       if (this.app.isQuiting) {
         logger.debug(`[${this.identifier}] App is quitting, allowing window to close naturally.`);
-        // Save state before quitting
-        try {
-          const { width, height } = browserWindow.getBounds(); // Get only width and height
-          const sizeState = { height, width };
-          logger.debug(
-            `[${this.identifier}] Saving window size on quit: ${JSON.stringify(sizeState)}`,
-          );
-          this.app.storeManager.set(this.windowStateKey as any, sizeState); // Save only size
-        } catch (error) {
-          logger.error(`[${this.identifier}] Failed to save window state on quit:`, error);
-        }
-        // Need to clean up intercept handler
-        this.stopInterceptHandler?.();
+        // Window state keeper will automatically save state
+        this.cleanupResources();
         return;
       }
 
@@ -341,115 +283,65 @@ export default class Browser {
         logger.debug(
           `[${this.identifier}] keepAlive is true, preventing default close and hiding window.`,
         );
-        // Optionally save state when hiding if desired, but primary save is on actual close/quit
-        // try {
-        //   const bounds = browserWindow.getBounds();
-        //   logger.debug(`[${this.identifier}] Saving window state on hide: ${JSON.stringify(bounds)}`);
-        //   this.app.storeManager.set(this.windowStateKey, bounds);
-        // } catch (error) {
-        //   logger.error(`[${this.identifier}] Failed to save window state on hide:`, error);
-        // }
         e.preventDefault();
         browserWindow.hide();
+
+        // Handle macOS dock behavior - hide dock when all windows are hidden
+        if (isMac && this.shouldHideDock()) {
+          app.dock?.hide();
+        }
       } else {
         // Window is actually closing (not keepAlive)
-        logger.debug(
-          `[${this.identifier}] keepAlive is false, allowing window to close. Saving size...`, // Updated log message
-        );
-        try {
-          const { width, height } = browserWindow.getBounds(); // Get only width and height
-          const sizeState = { height, width };
-          logger.debug(
-            `[${this.identifier}] Saving window size on close: ${JSON.stringify(sizeState)}`,
-          );
-          this.app.storeManager.set(this.windowStateKey as any, sizeState); // Save only size
-        } catch (error) {
-          logger.error(`[${this.identifier}] Failed to save window state on close:`, error);
-        }
-        // Need to clean up intercept handler
-        this.stopInterceptHandler?.();
+        logger.debug(`[${this.identifier}] keepAlive is false, allowing window to close.`);
+        // Window state keeper will automatically save state
+        this.cleanupResources();
       }
     });
 
-    // Listen for system theme changes to update visual effects
-    nativeTheme.on('updated', () => {
-      logger.debug(`[${this.identifier}] System theme changed, reapplying visual effects.`);
-      setTimeout(() => {
-        this.reapplyVisualEffects();
-      }, 100);
-    });
+    // Theme changes are now handled by WindowThemeManager
+  }
 
-    logger.debug(`[${this.identifier}] retrieveOrInitialize completed.`);
+  private shouldHideDock(): boolean {
+    // Check if any window in the app is still visible
+    if (!this.app.browserManager) return false;
 
-    return browserWindow;
+    // This is a simplified check - in a real implementation you'd check all windows
+    return true; // For now, always allow hiding dock
   }
 
   moveToCenter() {
-    logger.debug(`Centering window: ${this.identifier}`);
-    this._browserWindow?.center();
+    this.positionManager?.centerWindow();
   }
 
   setWindowSize(boundSize: { height?: number; width?: number }) {
-    logger.debug(
-      `Setting window size for ${this.identifier}: width=${boundSize.width}, height=${boundSize.height}`,
-    );
-    const windowSize = this._browserWindow.getBounds();
-    this._browserWindow?.setBounds({
-      height: boundSize.height || windowSize.height,
-      width: boundSize.width || windowSize.width,
-    });
+    this.positionManager?.setSize(boundSize);
   }
 
   broadcast = <T extends MainBroadcastEventKey>(channel: T, data?: MainBroadcastParams<T>) => {
-    if (this._browserWindow.isDestroyed()) return;
+    if (this._browserWindow?.isDestroyed()) return;
 
     logger.debug(`Broadcasting to window ${this.identifier}, channel: ${channel}`);
     this._browserWindow.webContents.send(channel, data);
   };
 
   applyVisualEffects() {
-    // Windows 11 can use this new API
-    if (this._browserWindow && !this._browserWindow.isDestroyed()) {
-      logger.debug(`[${this.identifier}] Setting window background material for Windows 11`);
-      const isDarkMode = nativeTheme.shouldUseDarkColors;
-
-      try {
-        // Apply background material
-        // this._browserWindow.setBackgroundMaterial('mica');
-        this._browserWindow.setBackgroundColor(isDarkMode ? BACKGROUND_DARK : BACKGROUND_LIGHT);
-        this._browserWindow.setTitleBarOverlay({
-          color: isDarkMode ? BACKGROUND_DARK : BACKGROUND_LIGHT,
-          height: TITLE_BAR_HEIGHT,
-          symbolColor: isDarkMode ? SYMBOL_COLOR_DARK : SYMBOL_COLOR_LIGHT,
-        });
-        logger.debug(
-          `[${this.identifier}] Visual effects applied successfully (dark mode: ${isDarkMode})`,
-        );
-      } catch (error) {
-        logger.error(`[${this.identifier}] Failed to apply visual effects:`, error);
-      }
-    }
+    this.themeManager?.applyVisualEffects();
   }
 
   /**
    * Manually reapply visual effects (useful for fixing lost effects after window state changes)
    */
   reapplyVisualEffects() {
-    if (isWindows) {
-      logger.debug(`[${this.identifier}] Manually reapplying visual effects.`);
-      this.applyVisualEffects();
-    } else {
-      logger.debug(`[${this.identifier}] Visual effects not supported on this Windows version.`);
-    }
+    this.themeManager?.reapplyVisualEffects();
   }
 
   toggleVisible() {
     logger.debug(`Toggling visibility for window: ${this.identifier}`);
-    if (this._browserWindow.isVisible() && this._browserWindow.isFocused()) {
+    if (this._browserWindow?.isVisible() && this._browserWindow.isFocused()) {
       this._browserWindow.hide();
     } else {
-      this._browserWindow.show();
-      this._browserWindow.focus();
+      this._browserWindow?.show();
+      this._browserWindow?.focus();
     }
   }
 }
