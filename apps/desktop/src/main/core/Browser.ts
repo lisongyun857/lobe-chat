@@ -6,9 +6,18 @@ import {
   nativeTheme,
   screen,
 } from 'electron';
-import os from 'node:os';
 import { join } from 'node:path';
 
+import { isWindows } from '@/const/env';
+import {
+  BACKGROUND_DARK,
+  BACKGROUND_LIGHT,
+  MIN_HEIGHT,
+  MIN_WIDTH,
+  SYMBOL_COLOR_DARK,
+  SYMBOL_COLOR_LIGHT,
+  TITLE_BAR_HEIGHT,
+} from '@/const/theme';
 import { createLogger } from '@/utils/logger';
 
 import { preloadDir, resourcesDir } from '../const/dir';
@@ -20,9 +29,6 @@ const logger = createLogger('core:Browser');
 export interface BrowserWindowOpts extends BrowserWindowConstructorOptions {
   devTools?: boolean;
   height?: number;
-  /**
-   * URL
-   */
   identifier: string;
   keepAlive?: boolean;
   parentIdentifier?: string;
@@ -228,28 +234,27 @@ export default class Browser {
       `[${this.identifier}] Saved window state (only size used): ${JSON.stringify(savedState)}`,
     );
 
-    const { isWindows11, isWindows } = this.getWindowsVersion();
     const isDarkMode = nativeTheme.shouldUseDarkColors;
 
     const browserWindow = new BrowserWindow({
       ...res,
       ...(isWindows
         ? {
-            backgroundColor: isDarkMode ? '#000' : '#f8f8f8',
+            backgroundColor: isDarkMode ? BACKGROUND_DARK : BACKGROUND_LIGHT,
             titleBarOverlay: {
-              color: isDarkMode ? '#000' : '#f8f8f8',
-              height: 30,
-              symbolColor: isDarkMode ? '#ffffff80' : '#00000080',
+              color: isDarkMode ? BACKGROUND_DARK : BACKGROUND_LIGHT,
+              height: TITLE_BAR_HEIGHT,
+              symbolColor: isDarkMode ? SYMBOL_COLOR_DARK : SYMBOL_COLOR_LIGHT,
             },
             titleBarStyle: 'hidden',
           }
         : {}),
       autoHideMenuBar: true,
+      darkTheme: isDarkMode,
       frame: false,
       height: savedState?.height || height,
-      minHeight: 600,
-      minWidth: 960,
-      // Always create hidden first
+      minHeight: MIN_HEIGHT,
+      minWidth: MIN_WIDTH,
       show: false,
       title,
       // Context isolation environment
@@ -272,7 +277,7 @@ export default class Browser {
     this._browserWindow = browserWindow;
     logger.debug(`[${this.identifier}] BrowserWindow instance created.`);
 
-    if (isWindows11) this.applyVisualEffects();
+    if (isWindows) this.applyVisualEffects();
 
     logger.debug(`[${this.identifier}] Setting up nextInterceptor.`);
     this.stopInterceptHandler = this.app.nextInterceptor({
@@ -411,11 +416,11 @@ export default class Browser {
       try {
         // Apply background material
         // this._browserWindow.setBackgroundMaterial('mica');
-        this._browserWindow.setBackgroundColor(isDarkMode ? '#000' : '#f8f8f8');
+        this._browserWindow.setBackgroundColor(isDarkMode ? BACKGROUND_DARK : BACKGROUND_LIGHT);
         this._browserWindow.setTitleBarOverlay({
-          color: isDarkMode ? '#000' : '#f8f8f8',
-          height: 30,
-          symbolColor: isDarkMode ? '#ffffff80' : '#00000080',
+          color: isDarkMode ? BACKGROUND_DARK : BACKGROUND_LIGHT,
+          height: TITLE_BAR_HEIGHT,
+          symbolColor: isDarkMode ? SYMBOL_COLOR_DARK : SYMBOL_COLOR_LIGHT,
         });
         logger.debug(
           `[${this.identifier}] Visual effects applied successfully (dark mode: ${isDarkMode})`,
@@ -430,7 +435,6 @@ export default class Browser {
    * Manually reapply visual effects (useful for fixing lost effects after window state changes)
    */
   reapplyVisualEffects() {
-    const { isWindows } = this.getWindowsVersion();
     if (isWindows) {
       logger.debug(`[${this.identifier}] Manually reapplying visual effects.`);
       this.applyVisualEffects();
@@ -447,37 +451,5 @@ export default class Browser {
       this._browserWindow.show();
       this._browserWindow.focus();
     }
-  }
-
-  getWindowsVersion() {
-    if (process.platform !== 'win32') {
-      return {
-        isWindows: false,
-        isWindows10: false,
-        isWindows11: false,
-        version: null,
-      };
-    }
-
-    // 获取操作系统版本（如 "10.0.22621"）
-    const release = os.release();
-    const parts = release.split('.');
-
-    // 主版本和次版本
-    const majorVersion = parseInt(parts[0], 10);
-    const minorVersion = parseInt(parts[1], 10);
-
-    // 构建号是第三部分
-    const buildNumber = parseInt(parts[2], 10);
-
-    // Windows 11 的构建号从 22000 开始
-    const isWindows11 = majorVersion === 10 && minorVersion === 0 && buildNumber >= 22_000;
-
-    return {
-      buildNumber,
-      isWindows: true,
-      isWindows11,
-      version: release,
-    };
   }
 }
